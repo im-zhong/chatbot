@@ -13,7 +13,7 @@ class User(BaseModel):
     age: int
 
 
-async def test_chat_model() -> None:
+async def test_chat_model_with_structured_output() -> None:
     chat = get_chat_model()
     # https://reference.langchain.com/python/integrations/langchain_aws/?h=with_struc#langchain_aws.ChatBedrockConverse.with_structured_output
     # schema: The schema defining the structured output format. Supports:
@@ -71,3 +71,10 @@ async def test_chat_model() -> None:
     parsing_error = result["parsing_error"]
     assert parsed is None
     assert parsing_error is not None
+
+
+def test_chat_model_stream() -> None:
+    model = get_chat_model()
+
+    for chunk in model.stream(input=[HumanMessage("please introduce langchain")]):
+        print(chunk)
