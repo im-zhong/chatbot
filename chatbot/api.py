@@ -13,6 +13,17 @@ from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
 import asyncio
 import json
+from pydantic import BaseModel
+from typing_extensions import Annotated
+from chatbot.llm import get_chat_model
+
+
+llm = get_chat_model()
+
+
+class UserMessage(BaseModel):
+    messages: list
+
 
 app = FastAPI()
 
@@ -61,6 +72,24 @@ async def event_stream():
 def sse():
     return StreamingResponse(
         event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        },
+    )
+
+
+async def llm_chat(input: UserMessage):
+    async for chunk in llm.astream(input=input.messages):
+        yield f"data: {json.dumps({'token': chunk.content})}\n\n"
+
+
+@app.post("/chat")
+def chat(input: UserMessage):
+    print("get user prompt", input.model_dump())
+    return StreamingResponse(
+        llm_chat(input),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

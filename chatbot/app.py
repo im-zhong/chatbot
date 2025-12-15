@@ -8,7 +8,9 @@ import requests
 import json
 
 
-url = "http://localhost:8000/sse"
+url = "http://localhost:8000/chat"
+
+from chatbot.api import UserMessage
 
 
 ## Chat demo
@@ -72,22 +74,23 @@ if prompt := st.chat_input("What is up?"):
 
         # call the stream sse from fastapi
         # Handling JSON SSE (very common for LLMs)
-        with requests.get(url=url, stream=True) as r:
+        user_message = UserMessage(messages=st.session_state.messages)
+        with requests.post(url=url, json=user_message.model_dump(), stream=True) as r:
             for line in r.iter_lines(decode_unicode=True):
                 # TODO: 那我比较好奇不是data的时候会返回什么？
-                # if not line or not line.startswith("data: "):
-                #     continue
+                if not line or not line.startswith("data: "):
+                    continue
 
-                # # skip "data: "
-                # payload = json.loads(line[5:])
-                # token = payload["token"]
+                # skip "data: "
+                payload = json.loads(line[5:])
+                token = payload["token"]
 
-                # full_response += token
-                # message_placeholder.markdown(full_response + "▌")
+                full_response += token
+                message_placeholder.markdown(full_response + "▌")
 
                 # 我要直接输出整个line 看看sse的协议内容
-                full_response += line
-                message_placeholder.markdown(full_response + "▌")
+                # full_response += line
+                # message_placeholder.markdown(full_response + "▌")
 
         # finally, when llm finish its response, update the message box with the ful response
         message_placeholder.markdown(full_response)

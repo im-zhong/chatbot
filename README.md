@@ -11,7 +11,7 @@ A simple chatbot
 - When passing your script some custom arguments, they must be passed after two dashes.
 - Otherwise the arguments get interpreted as arguments to Streamlit itself.
 
-`uv run streamlit run chatbot/app.py [-- script args]`
+`PYTHONPATH=. uv run streamlit run chatbot/app.py [-- script args]`
 
 ### 1. How to debug streamlit?
 
