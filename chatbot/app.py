@@ -3,6 +3,13 @@ import random
 import time
 from llm import get_chat_model
 
+# streamlit itself is sync, so requests is enough
+import requests
+import json
+
+
+url = "http://localhost:8000/sse"
+
 
 ## Chat demo
 @st.cache_resource
@@ -59,9 +66,29 @@ if prompt := st.chat_input("What is up?"):
         #     message_placeholder.markdown(full_response + "▌")
 
         # call the llm in stream mode
-        for chunk in llm.stream(input=st.session_state.messages):
-            full_response += chunk.content
-            message_placeholder.markdown(full_response + "▌")
+        # for chunk in llm.stream(input=st.session_state.messages):
+        #     full_response += chunk.content
+        #     message_placeholder.markdown(full_response + "▌")
+
+        # call the stream sse from fastapi
+        # Handling JSON SSE (very common for LLMs)
+        with requests.get(url=url, stream=True) as r:
+            for line in r.iter_lines(decode_unicode=True):
+                # TODO: 那我比较好奇不是data的时候会返回什么？
+                # if not line or not line.startswith("data: "):
+                #     continue
+
+                # # skip "data: "
+                # payload = json.loads(line[5:])
+                # token = payload["token"]
+
+                # full_response += token
+                # message_placeholder.markdown(full_response + "▌")
+
+                # 我要直接输出整个line 看看sse的协议内容
+                full_response += line
+                message_placeholder.markdown(full_response + "▌")
+
         # finally, when llm finish its response, update the message box with the ful response
         message_placeholder.markdown(full_response)
     # Add assistant response to chat history

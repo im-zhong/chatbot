@@ -51,10 +51,12 @@ async def generate_ndjson():
 async def event_stream():
     for i in range(5):
         await asyncio.sleep(1)
-        yield f"data: {json.dumps({'data': i})}\n\n"
+        yield f"data: {json.dumps({'token': str(i)})}\n\n"
 
 
 # Swagger UI is NOT a streaming client
+# 我的SSE并没有chatgpt上描述的那些协议格式，就是我自己设计的json格式
+# TODO：需要更加细致的学习sse的协议内容
 @app.get("/sse")
 def sse():
     return StreamingResponse(

@@ -229,6 +229,7 @@ dependencies = [
     { name = "pydantic" },
     { name = "pyjwt" },
     { name = "python-dotenv" },
+    { name = "requests" },
     { name = "streamlit" },
 ]
 
@@ -252,6 +253,7 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.12.5" },
     { name = "pyjwt", specifier = ">=2.10.1" },
     { name = "python-dotenv", specifier = ">=1.2.1" },
+    { name = "requests", specifier = ">=2.32.5" },
     { name = "streamlit", specifier = ">=1.52.1" },
 ]
 
