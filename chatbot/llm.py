@@ -21,6 +21,15 @@ def get_api_key() -> str:
     return api_key
 
 
+def get_deepseek_api_key() -> str:
+    env_path = Path(".env")
+    # Load environment variables once at import time; keeps secrets out of code.
+    load_dotenv(dotenv_path=env_path)
+    api_key = os.getenv("DEEPSEEK_API_KEY")
+    assert api_key is not None
+    return api_key
+
+
 def get_zhipu_chat_model() -> ChatZhipuAI:
     """Create a ChatOpenAI-compatible client pointed at Zhipu's API."""
     # Use the OpenAI-compatible wrapper so we can talk to Zhipu with the same interface.
@@ -40,6 +49,18 @@ def get_zhipu_chat_model() -> ChatZhipuAI:
     # )
 
 
+def get_qwen_local_model() -> ChatOpenAI:
+    """Create a ChatOpenAI-compatible client pointed at Qwen's local API."""
+    return ChatOpenAI(
+        model="Qwen3-235B-A22B",
+        temperature=0.5,
+        api_key="NOKEY",
+        # api_key=None,
+        # Qwen local deployment endpoint
+        base_url="http://222.30.145.85:8001/v1",
+    )
+
+
 def get_embedding_model() -> ZhipuAIEmbeddings:
     """Create a ZhipuAIEmbeddings client for semantic embedding generation."""
     return ZhipuAIEmbeddings(model="embedding-3", api_key=get_api_key())
@@ -53,10 +74,11 @@ def get_deepseek_chat_model() -> ChatDeepSeek:
         max_tokens=None,
         timeout=None,
         max_retries=2,
-        api_key="sk-892c31b494064a2bb1aebbde125e7459",
+        api_key=get_deepseek_api_key(),
     )
 
 
 def get_chat_model() -> BaseChatModel:
-    # return get_deepseek_chat_model()
-    return get_zhipu_chat_model()
+    return get_deepseek_chat_model()
+    # return get_zhipu_chat_model()
+    # return get_qwen_local_model()

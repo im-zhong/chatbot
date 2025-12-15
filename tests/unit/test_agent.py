@@ -17,7 +17,8 @@ async def test_agent() -> None:
     # ):
     #     print(chunk, flush=True)
 
-    for chunk in agent.stream(
+    # messages 可以流式输出llm的response
+    async for chunk in agent.astream(
         input={"messages": [HumanMessage("please introduce lagnchain")]},
         stream_mode="messages",
     ):

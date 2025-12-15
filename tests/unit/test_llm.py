@@ -16,6 +16,8 @@ class User(BaseModel):
 async def test_chat_model_with_structured_output() -> None:
     chat = get_chat_model()
     # https://reference.langchain.com/python/integrations/langchain_aws/?h=with_struc#langchain_aws.ChatBedrockConverse.with_structured_output
+    # https://reference.langchain.com/python/integrations/langchain_deepseek/#langchain_deepseek.ChatDeepSeek.with_structured_output
+    # deepseek的method支持function_calling, json_method, json_schema
     # schema: The schema defining the structured output format. Supports:
     #   Pydantic models: BaseModel subclasses with field validation
     #   Dataclasses: Python dataclasses with type annotations
@@ -55,12 +57,15 @@ async def test_chat_model_with_structured_output() -> None:
 
     structured = chat.with_structured_output(
         schema=User,
-        # method="function_calling",
+        # qwen 支持 json mode，可以通过测试
+        # 智谱ai只支持function calling，不能通过测试，会出现幻觉
+        # deepseek需要在prompt中明确提及json，但是也可以通过测试, json_schema不行
+        method="json_mode",
         include_raw=True,
-        strict=False,
     )
     result = await structured.ainvoke(
-        input=[HumanMessage(content="hi, what a nice day!")]
+        input=[HumanMessage(content="extract info into json: hi, what a nice day!,")]
+        # input=[HumanMessage(content="hi, what a nice day!,")]
     )
     # zhipu和deepseek在没有提供schema里的信息的时候，会出现幻觉，强行解析
     # zhipu: user=john, age=25
