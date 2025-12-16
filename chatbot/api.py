@@ -18,16 +18,21 @@ from typing_extensions import Annotated
 from chatbot.llm import get_chat_model
 from chatbot.agent import get_agent, get_config
 from langchain.messages import HumanMessage
-from chatbot.agent import MessagesState
+from chatbot.agent import MessagesState, DB_URI
 
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+from langgraph.checkpoint.postgres import PostgresSaver
+from contextlib import asynccontextmanager
 
 llm = get_chat_model()
-agent = get_agent(llm)
 
 
-async def agent_chat(message: str):
+async def agent_chat(agent, message: str):
     # each time we call agent, we should get the snapshot of it, and resotre the messages
     # get the latest state
+
+    # async with AsyncPostgresSaver.from_conn_string(DB_URI) as checkpointer:
+    # with PostgresSaver.from_conn_string(DB_URI) as checkpointer:
     config = get_config()
     # checkpoint = agent.get_state(config=config)
     # 其实需要做的事情就是把memory里面的消息放到agent的state里面吧
@@ -64,7 +69,26 @@ class UserMessage(BaseModel):
     messages: list
 
 
-app = FastAPI()
+# 不行，看起来必须写一个fastapi lifetime span了
+# https://fastapi.tiangolo.com/advanced/events
+
+
+# perfect for
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # create async pg saver
+    async with AsyncPostgresSaver.from_conn_string(DB_URI) as checkpointer:
+        await checkpointer.setup()
+
+        # 需要在这里创建agent graph和checkpointer
+        # 不同用户的agent用config来区分
+        agent = get_agent(model=llm, checkpointer=checkpointer)
+        app.state.agent = agent
+
+        yield
+
+
+app = FastAPI(lifespan=lifespan)
 
 
 # FastAPI streaming works internally, and clients can consume it in real time (e.g., curl -N, front-end JS fetch, Python requests with streaming, etc.)  ￼
@@ -145,7 +169,7 @@ class AgentMessage(BaseModel):
 def do_agent_chat(input: AgentMessage):
     # print("get user prompt", input.model_dump())
     return StreamingResponse(
-        agent_chat(input.message),
+        agent_chat(app.state.agent, input.message),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

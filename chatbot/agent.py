@@ -20,6 +20,13 @@ from chatbot.llm import get_chat_model
 from langgraph.checkpoint.memory import InMemorySaver
 from langchain_core.runnables import RunnableConfig
 
+# https://github.com/langchain-ai/langgraph/tree/main/libs/checkpoint-postgres
+# https://docs.langchain.com/oss/python/langgraph/add-memory#example-using-postgres-checkpointer
+# 我必须要按照这个例子里面的方式来写吗？用with？
+from langgraph.checkpoint.postgres import PostgresSaver
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+from langgraph.checkpoint.base import BaseCheckpointSaver
+
 
 # 在 LangGraph 里：
 # 	•	State 是在一次 graph 执行过程中持续存在的
@@ -34,9 +41,29 @@ class MessagesState(TypedDict):
     llm_calls: int
 
 
+# 看起来我们必须先启动一个pg了
+# 看起来async pg saver的内部实现并没有使用sqlalchemy，直接用的psycopg
+DB_URI = "postgresql://postgres:postgres@localhost:5442/postgres?sslmode=disable"
+
+
 def get_agent(
     model: BaseChatModel,
+    checkpointer: BaseCheckpointSaver,
 ) -> CompiledStateGraph[MessagesState, None, MessagesState, MessagesState]:
+    # 这里应该有两个东西
+    # State: State in LangGraph persists throughout the agent’s execution
+    # Context: 暂时还没有学到
+
+    # TODO:
+    # 每次连接都会创建各异连接池pool，每个连接池默认十个连接，所以一个全局的async pg saver的连接是合适的
+    # 不过为了编码方便，我们这里还是每次重新会话都重新创建连接
+    # 好像是我们必须在这里也创建async的checkpointer，
+    # 并且好像在agent chat里面不需要创建checkpointer 因为根本就用不到，所以这个async saver 必须是全局的
+    # async with AsyncPostgresSaver.from_conn_string(DB_URI) as checkpointer:
+    #     # When using Postgres checkpointers for the first time, make sure to call .setup() method on them to create required tables
+    #     checkpointer.setup()
+
+    # how to guide里面是把这个llmcall也放到with context里面了，我认为是没有必要的
     def llm_call(state: dict) -> dict[str, Any]:
         """LLM decides whether to call a tool or not"""
 
@@ -50,10 +77,6 @@ def get_agent(
             "llm_calls": state.get("llm_calls", 0) + 1,
         }
 
-    # 这里应该有两个东西
-    # State: State in LangGraph persists throughout the agent’s execution
-    # Context: 暂时还没有学到
-
     # Build workflow
     agent_builder = StateGraph(state_schema=MessagesState)
 
@@ -65,7 +88,7 @@ def get_agent(
     agent_builder.add_edge("llm_call", END)
 
     # Compile the agent
-    checkpointer = InMemorySaver()
+    # checkpointer = InMemorySaver()
     agent = agent_builder.compile(checkpointer=checkpointer)
     return agent
 
