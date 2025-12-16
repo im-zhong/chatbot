@@ -2,7 +2,7 @@
 # zhangzhong
 from chatbot.agent import get_agent
 from chatbot.llm import get_chat_model
-from langchain.messages import HumanMessage
+from langchain.messages import HumanMessage, AIMessageChunk
 import pytest
 
 pytestmark = pytest.mark.anyio
@@ -22,4 +22,5 @@ async def test_agent() -> None:
         input={"messages": [HumanMessage("please introduce lagnchain")]},
         stream_mode="messages",
     ):
+        # chunk 本身就是一个tuple, len = 2, chunk[0]: AIMessageChunk, chunk[1]: dict
         print(chunk, sep="|", flush=True)

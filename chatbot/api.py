@@ -16,9 +16,48 @@ import json
 from pydantic import BaseModel
 from typing_extensions import Annotated
 from chatbot.llm import get_chat_model
+from chatbot.agent import get_agent, get_config
+from langchain.messages import HumanMessage
+from chatbot.agent import MessagesState
 
 
 llm = get_chat_model()
+agent = get_agent(llm)
+
+
+async def agent_chat(message: str):
+    # each time we call agent, we should get the snapshot of it, and resotre the messages
+    # get the latest state
+    config = get_config()
+    # checkpoint = agent.get_state(config=config)
+    # 其实需要做的事情就是把memory里面的消息放到agent的state里面吧
+    # state = MessagesState(**checkpoint.values)
+    # 在最开始的时候 checkpoint里面是空的
+    # ！！！ 我们不需要手动管理，checkpoint会自动做persistence！！！
+    # print("checkpoint: ", checkpoint)
+    # if not checkpoint.values:
+    #     async for chunk in agent.astream(
+    #         input={"messages": [HumanMessage(message)]},
+    #         stream_mode="messages",
+    #         # 每次调用agent都需要传入config！
+    #         # 这样才能记录聊天历史
+    #         config=config,
+    #     ):
+    #         yield f"data: {json.dumps({'token': chunk[0].content})}\n\n"
+    # else:
+    #     async for chunk in agent.astream(
+    #         input={"messages": checkpoint.values["messages"] + [message]},
+    #         stream_mode="messages",
+    #         config=config,
+    #     ):
+    #         yield f"data: {json.dumps({'token': chunk[0].content})}\n\n"
+    # 我擦！真的！！！牛逼呀，这样就更简单了，相比于没有checkpoint的写法，实际上就只多了一个config参数而已
+    async for chunk in agent.astream(
+        input={"messages": [HumanMessage(content=message)]},
+        stream_mode="messages",
+        config=config,
+    ):
+        yield f"data: {json.dumps({'token': chunk[0].content})}\n\n"
 
 
 class UserMessage(BaseModel):
@@ -90,6 +129,23 @@ def chat(input: UserMessage):
     print("get user prompt", input.model_dump())
     return StreamingResponse(
         llm_chat(input),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        },
+    )
+
+
+class AgentMessage(BaseModel):
+    message: str
+
+
+@app.post("/agent-chat")
+def do_agent_chat(input: AgentMessage):
+    # print("get user prompt", input.model_dump())
+    return StreamingResponse(
+        agent_chat(input.message),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
