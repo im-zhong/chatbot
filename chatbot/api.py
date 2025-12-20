@@ -3,6 +3,15 @@
 # 2025/12/14
 # zhangzhong
 
+## Authentication
+# https://docs.streamlit.io/develop/concepts/connections/authentication
+# https://docs.streamlit.io/develop/tutorials/authentication/google
+
+# step 1:
+# 为了用OCID，google cloud跟我要支付信息，wechat跟我要网站截图。。。
+# https://open.weixin.qq.com/cgi-bin/appcreate?t=manage/createWeb&type=app&lang=zh_CN&token=9f69eada3ff04a80717b45f15db3c105eb2f5b24
+# 微信的这个可以搞一下，刚好我有一个网站，用streamlit搞上玩一玩。
+
 from __future__ import annotations
 
 
@@ -27,13 +36,19 @@ from contextlib import asynccontextmanager
 llm = get_chat_model()
 
 
-async def agent_chat(agent, message: str):
+class AgentMessage(BaseModel):
+    user_id: str
+    thread_id: str
+    message: str
+
+
+async def agent_chat(agent, message: AgentMessage):
     # each time we call agent, we should get the snapshot of it, and resotre the messages
     # get the latest state
 
     # async with AsyncPostgresSaver.from_conn_string(DB_URI) as checkpointer:
     # with PostgresSaver.from_conn_string(DB_URI) as checkpointer:
-    config = get_config()
+    config = get_config(user_id=message.user_id, thread_id=message.thread_id)
     # checkpoint = agent.get_state(config=config)
     # 其实需要做的事情就是把memory里面的消息放到agent的state里面吧
     # state = MessagesState(**checkpoint.values)
@@ -58,7 +73,7 @@ async def agent_chat(agent, message: str):
     #         yield f"data: {json.dumps({'token': chunk[0].content})}\n\n"
     # 我擦！真的！！！牛逼呀，这样就更简单了，相比于没有checkpoint的写法，实际上就只多了一个config参数而已
     async for chunk in agent.astream(
-        input={"messages": [HumanMessage(content=message)]},
+        input={"messages": [HumanMessage(content=message.message)]},
         stream_mode="messages",
         config=config,
     ):
@@ -159,10 +174,6 @@ def chat(input: UserMessage):
             "Connection": "keep-alive",
         },
     )
-
-
-class AgentMessage(BaseModel):
-    message: str
 
 
 @app.post("/agent-chat")

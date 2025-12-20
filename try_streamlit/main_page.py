@@ -4,6 +4,7 @@ import streamlit as st
 st.markdown("# Main page 🎈")
 st.sidebar.markdown("# Main page 🎈")
 
+
 # 2025/12/15
 # zhangzhong
 # https://docs.streamlit.io/get-started/fundamentals/main-concepts
@@ -21,6 +22,62 @@ import time
 import streamlit as st
 import pandas as pd
 import numpy as np
+import os
+
+## Connecting to data
+# https://docs.streamlit.io/develop/concepts/connections/connecting-to-data
+
+# Create the SQL connection to pets_db as specified in your secrets file.
+# By default, connection objects are cached without expiration using st.cache_resource
+conn = st.connection(
+    "pets_db",
+    type="sql",
+    # ttl=1 #  if you want the connection object to expire after some time.
+)
+
+# Insert some data with conn.session.
+with conn.session as s:
+    s.execute("CREATE TABLE IF NOT EXISTS pet_owners (person TEXT, pet TEXT);")
+    s.execute("DELETE FROM pet_owners;")
+    pet_owners = {"jerry": "fish", "barbara": "cat", "alex": "puppy"}
+    for k in pet_owners:
+        s.execute(
+            "INSERT INTO pet_owners (person, pet) VALUES (:owner, :pet);",
+            params=dict(owner=k, pet=pet_owners[k]),
+        )
+    s.commit()
+
+# Query and display the data you inserted
+# Convenience methods like query() and read() will typically cache results by default using st.cache_data without an expiration
+pet_owners = conn.query(
+    "select * from pet_owners",
+    # ttl="1d", # When an app can run many different read operations with large results, it can cause high memory usage over time and results to become stale in a long-running app
+)
+st.dataframe(pet_owners)
+
+
+## Secrets management
+# https://docs.streamlit.io/develop/concepts/connections/secrets-management
+# - global secrets: ~/.streamlit/secrets.toml
+# - local. secrets: $CWD/.streamlit/secrets.toml
+
+# Everything is accessible via the st.secrets dict:
+st.write("DB username:", st.secrets["db_username"])
+st.write("DB password:", st.secrets["db_password"])
+# And the root-level secrets are also accessible as environment variables:
+st.write(
+    "Has environment variables been set:",
+    os.environ["db_username"] == st.secrets["db_username"],
+)
+
+
+## Authentication and information
+# https://docs.streamlit.io/develop/concepts/connections/authentication
+# Streamlit supports user authentication with OpenID Connect (OIDC)
+# 只能用OIDC登陆吗？不能用账号和密码登录吗？
+# https://github.com/settings/applications/new github也是一种选择，感觉这个配置起来要稍微简单一些
+# https://github.com/settings/applications/3301325 不是 github有点过于的简单了 喜欢
+
 
 df = pd.DataFrame({"first column": [1, 2, 3, 4], "second column": [10, 20, 30, 40]})
 

@@ -14,6 +14,9 @@ A simple chatbot
 
 `PYTHONPATH=. uv run streamlit run chatbot/app.py`
 
+- start the multi page app
+`PYTHONPATH=. uv run streamlit run `
+
 ### 1. How to debug streamlit?
 
 1. `python -m streamlit run your_script.py` cause streamlit could be start as a normal python module, so I think just configure it in the vscode debug conf, and start it as a normal python program, then you could debug it.
