@@ -177,3 +177,19 @@ async def get_threads_for_user(conn, user_id: str) -> list[str]:
     #     created_at TIMESTAMP DEFAULT now(),
     #     PRIMARY KEY (user_id, thread_id)
     # );
+
+
+async def init_new_agent_thread(
+    agent: CompiledStateGraph, user_id: str, thread_id: str
+) -> None:
+    """Seed a new thread with an initial system message."""
+    config = get_config(thread_id=thread_id, user_id=user_id)
+    base_messages: list[AnyMessage] = []
+    base_messages.append(SystemMessage(content="let's start talk!"))
+
+    # https://docs.langchain.com/oss/python/langgraph/persistence#update-state
+    # Persist the initial state so subsequent invokes pick it up from the checkpointer.
+    agent.aupdate_state(
+        config=config,
+        values={"messages": base_messages, "llm_calls": 0},
+    )

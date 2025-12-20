@@ -25,13 +25,20 @@ import json
 from pydantic import BaseModel
 from typing_extensions import Annotated
 from chatbot.llm import get_chat_model
-from chatbot.agent import get_agent, get_config, get_threads_for_user, get_all_history
+from chatbot.agent import (
+    get_agent,
+    get_config,
+    get_threads_for_user,
+    get_all_history,
+    init_new_agent_thread,
+)
 from langchain.messages import HumanMessage
 from chatbot.agent import MessagesState, DB_URI
 
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.checkpoint.postgres import PostgresSaver
 from contextlib import asynccontextmanager
+import uuid
 
 llm = get_chat_model()
 
@@ -205,6 +212,15 @@ async def get_thread_chat_messages(user_id: str, thread_id: str) -> list[dict]:
     )
     print(messages)
     return messages
+
+
+@app.get("/new-chat")
+async def get_new_chat(user_id: str) -> str:
+    thread_id = str(uuid.uuid4())
+    await init_new_agent_thread(
+        agent=app.state.agent, user_id=user_id, thread_id=thread_id
+    )
+    return thread_id
 
 
 # not_work

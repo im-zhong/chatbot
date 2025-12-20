@@ -127,6 +127,12 @@ def fetch_thread_chat_messages(user_id: str, thread_id: str) -> list[dict]:
         return r.json()
 
 
+def new_chat() -> str:
+    url = "http://localhost:8000/new-chat"
+    with requests.get(url=url, params={"user_id": user_id}) as r:
+        return r.json()
+
+
 ## Chat demo
 @st.cache_resource
 def get_cached_chat_model():
@@ -152,6 +158,7 @@ if st.sidebar.button("➕ New chat", use_container_width=True):
     st.session_state.current_thread_id = None
     # 不行，这里最好的实现方式就是提供一个new chat api！
     # st.session_state.messages = []
+    st.session_state.current_thread_id = new_chat()
     st.rerun()
 
 if not thread_ids:
