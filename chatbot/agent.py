@@ -142,54 +142,64 @@ async def get_all_history(agent: CompiledStateGraph, user_id: str, thread_id: st
 
 
 async def get_threads_for_user(conn, user_id: str) -> list[str]:
-    # Core idea (important)
-    # LangGraph persistence works like this:
-    # 	•	Every run is identified by a thread_id
-    # 	•	You pass config = {"configurable": {...}} when invoking the graph
-    # 	•	The checkpointer stores configurable as metadata
-    # 	•	You can query that metadata to group threads by user_id
-    # So the rule is:
-    # If you want to query by user_id, you must put user_id into configurable.
-    # Two methods
-    # 1. use pgsaver's table: checkpoints
-
-    # AsyncPostgresSaver exposes a psycopg.AsyncConnection, which doesn't have
-    # asyncpg-style fetch helpers. Use a cursor instead.
-    # created_at doesn't exist in checkpoint schema; use checkpoint_id ordering
     query = """
-        SELECT
-            thread_id,
-            MAX(checkpoint_id) AS latest_checkpoint_id
-        FROM checkpoints
-        WHERE metadata->>'user_id' = %s
-        GROUP BY thread_id
-        ORDER BY latest_checkpoint_id DESC
+        SELECT thread_id
+        FROM user_threads
+        WHERE user_id = %s
+        ORDER BY created_at DESC
     """
     async with conn.cursor() as cur:
         await cur.execute(query, (user_id,))
         rows = await cur.fetchall()
     return [r["thread_id"] for r in rows]
 
-    # 2. create and maintain a table ourself
-    #     CREATE TABLE user_threads (
-    #     user_id TEXT,
-    #     thread_id TEXT,
-    #     created_at TIMESTAMP DEFAULT now(),
-    #     PRIMARY KEY (user_id, thread_id)
-    # );
+
+async def ensure_user_threads_table(conn) -> None:
+    """Create user_threads table if it doesn't exist."""
+    async with conn.cursor() as cur:
+        await cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS user_threads (
+                user_id TEXT NOT NULL,
+                thread_id TEXT PRIMARY KEY,
+                created_at TIMESTAMP DEFAULT now()
+            );
+            """
+        )
+        await cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_user_threads_user
+            ON user_threads(user_id);
+            """
+        )
+
+
+async def insert_user_thread(conn, user_id: str, thread_id: str) -> None:
+    """Record a new chat thread for a user."""
+    sql = """
+        INSERT INTO user_threads (user_id, thread_id)
+        VALUES (%s, %s)
+        ON CONFLICT (thread_id) DO NOTHING
+    """
+    async with conn.cursor() as cur:
+        await cur.execute(sql, (user_id, thread_id))
 
 
 async def init_new_agent_thread(
-    agent: CompiledStateGraph, user_id: str, thread_id: str
+    agent: CompiledStateGraph,
+    user_id: str,
+    thread_id: str,
+    system_prompt: str | None = None,
 ) -> None:
     """Seed a new thread with an initial system message."""
     config = get_config(thread_id=thread_id, user_id=user_id)
     base_messages: list[AnyMessage] = []
-    base_messages.append(SystemMessage(content="let's start talk!"))
+    if system_prompt:
+        base_messages.append(SystemMessage(content=system_prompt))
 
     # https://docs.langchain.com/oss/python/langgraph/persistence#update-state
     # Persist the initial state so subsequent invokes pick it up from the checkpointer.
-    agent.aupdate_state(
+    await agent.aupdate_state(
         config=config,
         values={"messages": base_messages, "llm_calls": 0},
     )

@@ -1,25 +1,19 @@
-import streamlit as st
-import random
-import time
-from chatbot.llm import get_chat_model
-import uuid
-
-# streamlit itself is sync, so requests is enough
-import requests
 import json
+import urllib.parse
 
+import requests
+import streamlit as st
+
+from chatbot.api import AgentMessage
+from chatbot.llm import get_chat_model
 
 # url = "http://localhost:8000/chat"
-url = "http://localhost:8000/agent-chat"
-get_all_threads_url = "http://localhost:8000/all-chat-threads"
-
-from chatbot.api import UserMessage, AgentMessage
-
+AGENT_CHAT_URL = "http://localhost:8000/agent-chat"
+GET_ALL_THREADS_URL = "http://localhost:8000/all-chat-threads"
+NEW_CHAT_URL = "http://localhost:8000/new-chat"
+THREAD_MESSAGES_URL = "http://localhost:8000/thread-chat-messages"
 
 st.title("Auth test")
-
-import streamlit as st
-import urllib.parse
 
 # ====== Keycloak settings (match your realm) ======
 ISSUER = "http://localhost:8080/realms/streamlit"  # must match token "iss"
@@ -34,10 +28,6 @@ keycloak_logout_url = (
 
 st.title("Login / Logout (Streamlit + Keycloak OIDC)")
 
-import streamlit as st
-import urllib.parse
-
-ISSUER = "http://localhost:8080/realms/streamlit"
 CLIENT_ID = "streamlit"
 APP_BASE_URL = "http://localhost:8501"
 POST_LOGOUT_REDIRECT = f"{APP_BASE_URL}/"
@@ -102,11 +92,7 @@ if "current_thread_id" not in st.session_state:
 
 
 def fetch_threads(user_id: str) -> list[str]:
-    resp = requests.get(
-        url=get_all_threads_url,
-        params={"user_id": user_id},
-        timeout=10,
-    )
+    resp = requests.get(GET_ALL_THREADS_URL, params={"user_id": user_id}, timeout=10)
     resp.raise_for_status()
     data: list[str] = resp.json()
     # Expect list[str]
@@ -119,18 +105,20 @@ def fetch_threads(user_id: str) -> list[str]:
 def fetch_thread_chat_messages(user_id: str, thread_id: str) -> list[dict]:
     # pass
     # 1. 首先实现一个新的API，根据userid和threadid返回消息历史
-    url = "http://localhost:8000/thread-chat-messages"
-
-    with requests.get(
-        url=url, params={"user_id": user_id, "thread_id": thread_id}
-    ) as r:
-        return r.json()
+    resp = requests.get(
+        THREAD_MESSAGES_URL,
+        params={"user_id": user_id, "thread_id": thread_id},
+        timeout=10,
+    )
+    resp.raise_for_status()
+    return resp.json()
 
 
 def new_chat() -> str:
-    url = "http://localhost:8000/new-chat"
-    with requests.get(url=url, params={"user_id": user_id}) as r:
-        return r.json()
+    resp = requests.post(NEW_CHAT_URL, json={"user_id": user_id}, timeout=10)
+    resp.raise_for_status()
+    data = resp.json()
+    return data["thread_id"]
 
 
 ## Chat demo
@@ -153,17 +141,17 @@ except requests.RequestException as e:
 
 # 我想把new chat的按钮放在最上面
 if st.sidebar.button("➕ New chat", use_container_width=True):
-    # You can implement real "create thread" via API later.
-    # For now, just clear selection so UI looks like a new session.
-    st.session_state.current_thread_id = None
-    # 不行，这里最好的实现方式就是提供一个new chat api！
-    # st.session_state.messages = []
     st.session_state.current_thread_id = new_chat()
+    # st.session_state.messages = [
+    #     {"role": "assistant", "content": "Let's start chatting! 👇"}
+    # ]
     st.rerun()
 
 if not thread_ids:
     st.sidebar.caption("No chats yet.")
     st.session_state.current_thread_id = None
+    # 那么，这里可以自动的创建一个新的new chat 作为初始化
+    st.session_state.current_thread_id = new_chat()
 else:
     # Default to first thread if none selected yet (assumes API already sorts new->old)
     # 这个不管thread id是一个随机的值，还是None，都可以更新成最新的值 好！
@@ -179,10 +167,9 @@ else:
     )
     st.session_state.current_thread_id = selected
     # 一旦选择了，我们就要读取当前thread id所对应的所有的历史消息，并更新session_state.messages
-    messages = fetch_thread_chat_messages(
+    st.session_state.messages = fetch_thread_chat_messages(
         user_id=user_id, thread_id=st.session_state.current_thread_id
     )
-    st.session_state.messages = messages
 
 
 st.write(
@@ -254,8 +241,12 @@ if prompt := st.chat_input("What is up?"):
         # user_message = UserMessage(messages=st.session_state.messages)
 
         # 到了这一步了，不得不聊天了，如果thread_id是空的话，就说明要创建一个新的对话
-        if st.session_state.current_thread_id is None:
-            st.session_state.current_thread_id = str(uuid.uuid4())
+        # if st.session_state.current_thread_id is None:
+        #     st.session_state.current_thread_id = new_chat()
+        #     st.rerun()
+        # st.session_state.messages = [
+        #     {"role": "assistant", "content": "Let's start chatting! 👇"}
+        # ]
         assert user_id is not None
         agent_message = AgentMessage(
             message=prompt,
@@ -264,8 +255,9 @@ if prompt := st.chat_input("What is up?"):
         )
         # TODO: 但是要怎么在sidebar上体现出来呢？
 
-        # with requests.post(url=url, json=user_message.model_dump(), stream=True) as r:
-        with requests.post(url=url, json=agent_message.model_dump(), stream=True) as r:
+        with requests.post(
+            url=AGENT_CHAT_URL, json=agent_message.model_dump(), stream=True, timeout=30
+        ) as r:
             for line in r.iter_lines(decode_unicode=True):
                 # TODO: 那我比较好奇不是data的时候会返回什么？
                 if not line or not line.startswith("data: "):

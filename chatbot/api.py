@@ -31,12 +31,13 @@ from chatbot.agent import (
     get_threads_for_user,
     get_all_history,
     init_new_agent_thread,
+    ensure_user_threads_table,
+    insert_user_thread,
 )
 from langchain.messages import HumanMessage
 from chatbot.agent import MessagesState, DB_URI
 
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
-from langgraph.checkpoint.postgres import PostgresSaver
 from contextlib import asynccontextmanager
 import uuid
 
@@ -91,6 +92,11 @@ class UserMessage(BaseModel):
     messages: list
 
 
+class NewChatRequest(BaseModel):
+    user_id: str
+    system_prompt: str | None = None
+
+
 # 不行，看起来必须写一个fastapi lifetime span了
 # https://fastapi.tiangolo.com/advanced/events
 
@@ -101,6 +107,7 @@ async def lifespan(app: FastAPI):
     # create async pg saver
     async with AsyncPostgresSaver.from_conn_string(DB_URI) as checkpointer:
         await checkpointer.setup()
+        await ensure_user_threads_table(checkpointer.conn)
 
         # 需要在这里创建agent graph和checkpointer
         # 不同用户的agent用config来区分
@@ -170,6 +177,19 @@ def sse():
 async def llm_chat(input: UserMessage):
     async for chunk in llm.astream(input=input.messages):
         yield f"data: {json.dumps({'token': chunk.content})}\n\n"
+
+
+@app.post("/new-chat")
+async def new_chat(req: NewChatRequest):
+    thread_id = str(uuid.uuid4())
+    await insert_user_thread(app.state.conn, req.user_id, thread_id)
+    await init_new_agent_thread(
+        agent=app.state.agent,
+        user_id=req.user_id,
+        thread_id=thread_id,
+        system_prompt="let's start talk!",
+    )
+    return {"thread_id": thread_id}
 
 
 @app.post("/chat")
