@@ -25,7 +25,7 @@ import json
 from pydantic import BaseModel
 from typing_extensions import Annotated
 from chatbot.llm import get_chat_model
-from chatbot.agent import get_agent, get_config
+from chatbot.agent import get_agent, get_config, get_threads_for_user, get_all_history
 from langchain.messages import HumanMessage
 from chatbot.agent import MessagesState, DB_URI
 
@@ -99,6 +99,8 @@ async def lifespan(app: FastAPI):
         # 不同用户的agent用config来区分
         agent = get_agent(model=llm, checkpointer=checkpointer)
         app.state.agent = agent
+        # get the async pgsql connector
+        app.state.conn = checkpointer.conn
 
         yield
 
@@ -180,13 +182,29 @@ def chat(input: UserMessage):
 def do_agent_chat(input: AgentMessage):
     # print("get user prompt", input.model_dump())
     return StreamingResponse(
-        agent_chat(app.state.agent, input.message),
+        agent_chat(app.state.agent, input),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
         },
     )
+
+
+@app.get("/all-chat-threads")
+async def get_chat_history(user_id: str) -> list[str]:
+    threads = await get_threads_for_user(conn=app.state.conn, user_id=user_id)
+    return threads
+
+
+@app.get("/thread-chat-messages")
+async def get_thread_chat_messages(user_id: str, thread_id: str) -> list[dict]:
+    # return {role:"", content:""}
+    messages = await get_all_history(
+        agent=app.state.agent, user_id=user_id, thread_id=thread_id
+    )
+    print(messages)
+    return messages
 
 
 # not_work

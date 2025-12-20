@@ -26,6 +26,7 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.checkpoint.base import BaseCheckpointSaver
+from langchain.messages import HumanMessage, AIMessage, SystemMessage
 
 
 # 在 LangGraph 里：
@@ -70,8 +71,11 @@ def get_agent(
         return {
             "messages": [
                 model.invoke(
-                    [SystemMessage(content="You are a helpful chatbot.")]
-                    + state["messages"]
+                    # 使用上checkpoint saver这里就不对了 应该只有在state第一次初始化的时候，加上，不然的话
+                    # 每次调用llm call这个函数就都会在消息记录里面加上这一条
+                    # [SystemMessage(content="You are a helpful chatbot.")]
+                    #
+                    state["messages"]
                 )
             ],
             "llm_calls": state.get("llm_calls", 0) + 1,
@@ -95,3 +99,81 @@ def get_agent(
 
 def get_config(thread_id: str = "1", user_id: str = "2") -> RunnableConfig:
     return {"configurable": {"thread_id": thread_id, "user_id": user_id}}
+
+
+def to_openai_messages(raw_messages):
+    role_map = {
+        HumanMessage: "user",
+        AIMessage: "assistant",
+        SystemMessage: "system",
+    }
+    result = []
+    for m in raw_messages:
+        for cls, role in role_map.items():
+            if isinstance(m, cls):
+                result.append({"role": role, "content": m.content})
+                break
+    return result
+
+
+async def get_all_history(agent: CompiledStateGraph, user_id: str, thread_id: str):
+    config = {"configurable": {"user_id": user_id, "thread_id": thread_id}}
+    # get the latest state
+    snapshot = await agent.aget_state(config=config)
+
+    # list[BaseMessage]
+    raw_messages = snapshot.values["messages"]
+    # print(raw_messages)
+    # messages = [msg["input"] for msg in raw_messages]
+    messages = to_openai_messages(raw_messages)
+
+    return messages
+
+    # I want to get all the history state
+    # 这个函数都是拿到某个thread 的所有对话历史的，不是拿到所有的对话！
+    # snapshots = agent.get_state_history(config=config)
+
+    # 对于我们的agent，想要在某个history上进行聊天，只需要
+    # 1. 在agent.invoke里面加上checkpoint_id这个参数
+    # 2. 每次都找到某个
+    # 不对不对！只需要拿到thread id就行了呀！！！
+    # 如果config里面只提供了 thread id，那么就总是从最新的checkpoint开始replay
+    # 这和我们的预期行为是一样的
+
+
+async def get_threads_for_user(conn, user_id: str) -> list[str]:
+    # Core idea (important)
+    # LangGraph persistence works like this:
+    # 	•	Every run is identified by a thread_id
+    # 	•	You pass config = {"configurable": {...}} when invoking the graph
+    # 	•	The checkpointer stores configurable as metadata
+    # 	•	You can query that metadata to group threads by user_id
+    # So the rule is:
+    # If you want to query by user_id, you must put user_id into configurable.
+    # Two methods
+    # 1. use pgsaver's table: checkpoints
+
+    # AsyncPostgresSaver exposes a psycopg.AsyncConnection, which doesn't have
+    # asyncpg-style fetch helpers. Use a cursor instead.
+    # created_at doesn't exist in checkpoint schema; use checkpoint_id ordering
+    query = """
+        SELECT
+            thread_id,
+            MAX(checkpoint_id) AS latest_checkpoint_id
+        FROM checkpoints
+        WHERE metadata->>'user_id' = %s
+        GROUP BY thread_id
+        ORDER BY latest_checkpoint_id DESC
+    """
+    async with conn.cursor() as cur:
+        await cur.execute(query, (user_id,))
+        rows = await cur.fetchall()
+    return [r["thread_id"] for r in rows]
+
+    # 2. create and maintain a table ourself
+    #     CREATE TABLE user_threads (
+    #     user_id TEXT,
+    #     thread_id TEXT,
+    #     created_at TIMESTAMP DEFAULT now(),
+    #     PRIMARY KEY (user_id, thread_id)
+    # );

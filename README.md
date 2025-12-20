@@ -12,10 +12,10 @@ A simple chatbot
 - Otherwise the arguments get interpreted as arguments to Streamlit itself.
 - use  [-- script args] to pass args to your script
 
-`PYTHONPATH=. uv run streamlit run chatbot/app.py`
+`PYTHONPATH=. uv run streamlit run chatbot/app/app.py`
 
 - start the multi page app
-`PYTHONPATH=. uv run streamlit run `
+`PYTHONPATH=. uv run streamlit run`
 
 ### 1. How to debug streamlit?
 
