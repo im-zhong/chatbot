@@ -214,3 +214,4 @@ keycloak/
 
 .DS_Store
 *.db
+*tmp*
