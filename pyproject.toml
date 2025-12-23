@@ -52,3 +52,6 @@ convention = "google"
 
 [dependency-groups]
 dev = ["anyio>=4.12.0", "mypy>=1.19.0", "pytest>=9.0.2", "ruff>=0.14.9"]
+
+[tool.pytest.ini_options]
+markers = ["anyio: run test with anyio event loop"]

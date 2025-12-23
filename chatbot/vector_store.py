@@ -36,6 +36,13 @@ from pymilvus.milvus_client.index import IndexParams
 # Best practice: choose one interface per codebase/service to avoid mixing; use MilvusClient for straightforward apps, the Collection ORM when you need fine-grained Milvus features.
 
 
+## TODO: async milvus client
+# Yes. Pymilvus exposes async variants:
+# client style: AsyncMilvusClient (client-style) mirrors MilvusClient with awaitable methods.
+# ORM style: coll.search(..., _async=True).
+# 综合感觉还是client style更好一点
+
+
 # 我应该设计一个VectorStore的类
 # 不应该叫做VectorStore，KnowledgeBase
 
@@ -128,7 +135,15 @@ class VectorStore:
     ):
         # 这里咱们使用langchain的embedding function来做embed的工作
         texts = [document.page_content for document in documents]
-        vectors = await self.embeddings.aembed_documents(texts=texts)
+        # 这里一次性可以做的并发数量是有限制的
+        # zhipu的限制是64
+        # 那么可以简单的做成一个for
+        vectors: list[list[float]] = []
+        step = 64
+        for i in range(0, len(texts), step):
+            vectors.extend(
+                await self.embeddings.aembed_documents(texts=texts[i : i + step])
+            )
 
         # store the documents, metadata, vectors into milvus
         # construct data to be inserted into milvus
