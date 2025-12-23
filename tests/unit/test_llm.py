@@ -83,3 +83,13 @@ def test_chat_model_stream() -> None:
 
     for chunk in model.stream(input=[HumanMessage("please introduce langchain")]):
         print(chunk)
+
+
+# test embedding model
+async def test_embedding_model() -> None:
+    embedding = get_embedding_model()
+    print(embedding.dimensions)
+    vectors: list[list[float]] = await embedding.aembed_documents(
+        texts=["hello, world"]
+    )
+    print(vectors)

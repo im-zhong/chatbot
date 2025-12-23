@@ -24,7 +24,7 @@ import asyncio
 import json
 from pydantic import BaseModel
 from typing_extensions import Annotated
-from chatbot.llm import get_chat_model
+from chatbot.llm import get_chat_model, get_embedding_model
 from chatbot.agent import (
     get_agent,
     get_config,
@@ -40,6 +40,7 @@ from chatbot.agent import MessagesState, DB_URI
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from contextlib import asynccontextmanager
 import uuid
+from chatbot.vector_store import VectorStore
 
 llm = get_chat_model()
 
@@ -115,6 +116,11 @@ async def lifespan(app: FastAPI):
         app.state.agent = agent
         # get the async pgsql connector
         app.state.conn = checkpointer.conn
+
+        app.state.embeddings = get_embedding_model()
+
+        ## create milvus client
+        app.state.vector_store = VectorStore(app.state.embeddings)
 
         yield
 

@@ -4,8 +4,10 @@ import os
 from pathlib import Path
 
 from dotenv import load_dotenv
-from langchain_community.embeddings import ZhipuAIEmbeddings
+
+# from langchain_community.embeddings import ZhipuAIEmbeddings
 from langchain_openai import ChatOpenAI
+from langchain_openai.embeddings import OpenAIEmbeddings
 from langchain_community.chat_models import ChatZhipuAI
 from langchain_deepseek import ChatDeepSeek
 from langchain_core.language_models import BaseChatModel
@@ -61,9 +63,14 @@ def get_qwen_local_model() -> ChatOpenAI:
     )
 
 
-def get_embedding_model() -> ZhipuAIEmbeddings:
+def get_embedding_model() -> OpenAIEmbeddings:
     """Create a ZhipuAIEmbeddings client for semantic embedding generation."""
-    return ZhipuAIEmbeddings(model="embedding-3", api_key=get_api_key())
+    # return ZhipuAIEmbeddings(model="embedding-3", api_key=get_api_key())
+    return OpenAIEmbeddings(
+        model="embedding-3",
+        base_url="https://open.bigmodel.cn/api/paas/v4/",
+        api_key=get_api_key(),
+    )
 
 
 # https://docs.langchain.com/oss/python/integrations/chat/deepseek

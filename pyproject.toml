@@ -17,10 +17,12 @@ dependencies = [
     "psycopg[binary,pool]>=3.3.2",
     "pydantic>=2.12.5",
     "pyjwt>=2.10.1",
+    "pymilvus[milvus-lite]>=2.6.5",
     "python-dotenv>=1.2.1",
     "requests>=2.32.5",
     "sqlalchemy>=2.0.45",
     "streamlit>=1.52.1",
+    "zhipuai>=1.0.7",
 ]
 
 [tool.ruff]
