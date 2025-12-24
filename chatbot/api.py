@@ -41,8 +41,7 @@ from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from contextlib import asynccontextmanager
 import uuid
 from chatbot.vector_store import VectorStore
-
-llm = get_chat_model()
+from chatbot.tools import build_retrieval_tool
 
 
 class AgentMessage(BaseModel):
@@ -110,17 +109,24 @@ async def lifespan(app: FastAPI):
         await checkpointer.setup()
         await ensure_user_threads_table(checkpointer.conn)
 
-        # 需要在这里创建agent graph和checkpointer
-        # 不同用户的agent用config来区分
-        agent = get_agent(model=llm, checkpointer=checkpointer)
-        app.state.agent = agent
-        # get the async pgsql connector
-        app.state.conn = checkpointer.conn
-
         app.state.embeddings = get_embedding_model()
 
         ## create milvus client
         app.state.vector_store = VectorStore(app.state.embeddings)
+
+        # 咱们所有的全局实例都在这里构建就对了
+        llm = get_chat_model()
+        # retrieval_tool = build_retrieval_tool(app.state.vector_store)
+        # llm.bind_tools([retrieval_tool])
+
+        # 需要在这里创建agent graph和checkpointer
+        # 不同用户的agent用config来区分
+        agent = get_agent(
+            model=llm, checkpointer=checkpointer, vector_store=app.state.vector_store
+        )
+        app.state.agent = agent
+        # get the async pgsql connector
+        app.state.conn = checkpointer.conn
 
         yield
 

@@ -64,7 +64,9 @@ class VectorStore:
 
         collection_name = "my_knowledges"
         if self.client.has_collection(collection_name):
-            self.client.drop_collection(collection_name)
+            self.client.load_collection("my_knowledges")
+            return
+            # self.client.drop_collection(collection_name)
             # 因为我们使用zhipuai的embedding api，所以dim是2048
         self.client.create_collection(
             collection_name,
@@ -191,6 +193,7 @@ class VectorStore:
             filter="",  # optional boolean filter on scalar fields
             # consistency_level="Eventually",
         )
+        print(f"semantic search by {query}, get: {res}")
 
         return [hit.entity.get("text") for hits in res for hit in hits]
 

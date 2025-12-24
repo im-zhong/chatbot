@@ -4,6 +4,8 @@ from pydantic import BaseModel
 from langchain_core.language_models import FakeMessagesListChatModel
 from langchain_core.messages import AIMessage, HumanMessage, ToolCall
 from chatbot.llm import get_chat_model, get_embedding_model
+from chatbot.vector_store import VectorStore
+from chatbot.tools import build_retrieval_tool
 
 pytestmark = pytest.mark.anyio
 
@@ -93,3 +95,18 @@ async def test_embedding_model() -> None:
         texts=["hello, world"]
     )
     print(vectors)
+
+
+## test llm with tools
+async def test_llm_with_tools():
+    embeddings = get_embedding_model()
+
+    ## create milvus client
+    vector_store = VectorStore(embeddings)
+
+    # 咱们所有的全局实例都在这里构建就对了
+    llm = get_chat_model()
+    retrieval_tool = build_retrieval_tool(vector_store)
+    llm.bind_tools([retrieval_tool])
+
+    

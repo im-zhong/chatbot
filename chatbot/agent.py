@@ -9,6 +9,9 @@ from operator import add
 from langgraph.graph import StateGraph, START, END
 from langchain_core.language_models import BaseChatModel
 from chatbot.llm import get_chat_model
+from langgraph.types import Command, RetryPolicy
+from typing import Literal
+from langchain.messages import ToolCall
 
 # https://docs.langchain.com/oss/python/langgraph/persistence
 # - The state of a thread at a particular point in time is called a checkpoint.
@@ -27,6 +30,8 @@ from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langchain.messages import HumanMessage, AIMessage, SystemMessage
+from chatbot.tools import build_retrieval_tool
+from chatbot.vector_store import VectorStore
 
 
 # 在 LangGraph 里：
@@ -40,6 +45,10 @@ class MessagesState(TypedDict):
     # reducer: The Annotated type with operator.add ensures that new messages are appended to the existing list rather than replacing it.
     messages: Annotated[list[AnyMessage], add]
     llm_calls: int
+    retrieval_calls: int
+    # retrieval_query: str | None
+    retrieval_result: str | None
+    tool_calls: list | None
 
 
 # 看起来我们必须先启动一个pg了
@@ -50,6 +59,8 @@ DB_URI = "postgresql://postgres:postgres@localhost:5442/postgres?sslmode=disable
 def get_agent(
     model: BaseChatModel,
     checkpointer: BaseCheckpointSaver,
+    # 在这里传入是最优雅的！
+    vector_store: VectorStore,
 ) -> CompiledStateGraph[MessagesState, None, MessagesState, MessagesState]:
     # 这里应该有两个东西
     # State: State in LangGraph persists throughout the agent’s execution
@@ -64,32 +75,142 @@ def get_agent(
     #     # When using Postgres checkpointers for the first time, make sure to call .setup() method on them to create required tables
     #     checkpointer.setup()
 
+    # 在这里build retrieval tool
+    retrieval_tool = build_retrieval_tool(vector_store=vector_store)
+
+    # TODO: 这里要改成Command
     # how to guide里面是把这个llmcall也放到with context里面了，我认为是没有必要的
-    def llm_call(state: dict) -> dict[str, Any]:
+    def llm_call(state: dict) -> Command[Literal["retrieval_node", END]]:
         """LLM decides whether to call a tool or not"""
 
-        return {
-            "messages": [
-                model.invoke(
-                    # 使用上checkpoint saver这里就不对了 应该只有在state第一次初始化的时候，加上，不然的话
-                    # 每次调用llm call这个函数就都会在消息记录里面加上这一条
-                    # [SystemMessage(content="You are a helpful chatbot.")]
-                    #
-                    state["messages"]
-                )
-            ],
-            "llm_calls": state.get("llm_calls", 0) + 1,
-        }
+        # TIPS: bind_tools不是一个inplace modify，所以后面直接调用 model.invoke 并不会携带这个工具
+        llm_with_retrieval_tool = model.bind_tools([retrieval_tool])
+
+        # TIPS: 用户的最新的input是怎么放到这里面来的？哦哦哦哦
+        # graph.invoke({"messages": [{"role": "user", "content": "hi!"}]})
+        # 是在调用的时候
+        # TODO: 这里判断是否需要使用工具，是指通过最新的一条input？还是整个历史？
+        # 我认为应该传入整个历史
+        result: AIMessage = llm_with_retrieval_tool.invoke(state["messages"])
+        llm_calls = state.get("llm_calls", 0) + 1
+        # 判断是不是
+        if result.tool_calls and len(result.tool_calls) > 0:
+            # 因为我们后续可能会加入其他的工具，所以这里比较好的方式是把tool_calls放到state里面
+            # 同时为了防止tool_calls的消息占用历史消息，占用token，tool_calls采取临时保存的方式
+            # 也就是tool_calls的生命周期是临时的，一旦工具调用完毕，就会消失
+            return Command(
+                update={"tool_calls": result.tool_calls, "llm_calls": llm_calls},
+                goto="retrieval_node",
+            )
+
+        return Command(update={"messages": [result], "llm_calls": llm_calls}, goto=END)
+
+        # return {
+        #     "messages": [
+        #         model.invoke(
+        #             # 使用上checkpoint saver这里就不对了 应该只有在state第一次初始化的时候，加上，不然的话
+        #             # 每次调用llm call这个函数就都会在消息记录里面加上这一条
+        #             # [SystemMessage(content="You are a helpful chatbot.")]
+        #             #
+        #             state["messages"]
+        #         )
+        #     ],
+        #     "llm_calls": state.get("llm_calls", 0) + 1,
+        # }
+
+    async def retrieval_node(
+        state: dict,
+    ) -> Command[Literal["llm_call_with_retrieval_node"]]:
+        assert state.get("tool_calls") is not None
+        tool_calls: list[ToolCall] = state.get("tool_calls", [])
+        assert len(tool_calls) == 1
+
+        # extract query from it
+        #     class ToolCall(TypedDict):
+        # """Represents an AI's request to call a tool.
+
+        # Example:
+        #     ```python
+        #     {"name": "foo", "args": {"a": 1}, "id": "123"}
+        #     ```
+
+        #     This represents a request to call the tool named `'foo'` with arguments
+        #     `{"a": 1}` and an identifier of `'123'`.
+
+        # """
+
+        # name: str
+        # """The name of the tool to be called."""
+        # args: dict[str, Any]
+        # """The arguments to the tool call."""
+        # id: str | None
+        # """An identifier associated with the tool call.
+
+        # An identifier is needed to associate a tool call request with a tool
+        # call result in events when multiple concurrent tool calls are made.
+
+        # """
+        # type: NotRequired[Literal["tool_call"]]
+        retrieval_call: ToolCall = tool_calls[0]
+        # 原来如此，tool call是一个typed dict
+        tool_name = retrieval_call["name"]
+        tool_args = retrieval_call["args"]
+
+        # TODO: 这里需要传入一个全局的实例，如何传入是最优雅的？
+        # StructuredTool is a Runnable; use its async invoke instead of calling directly
+        # TIPS: TypeError: 'StructuredTool' object is not callable: retrieval_tool(tool_args)
+        # 是不是因为这个函数是被@tool 装饰过的，所以不能直接调用，只能通过langchain提供的api来调用
+        # @tool decorator wraps your function into a StructuredTool (a Runnable), so it’s no longer a plain callable. To run it yourself, use .invoke/ainvoke (or .batch/abatch).
+        retrieved_content: str = await retrieval_tool.ainvoke(tool_args)
+        retrieval_calls = state.get("retrieval_calls", 0) + 1
+
+        return Command(
+            update={
+                "retrieval_result": retrieved_content,
+                "retrieval_calls": retrieval_calls,
+                "tool_calls": None,
+            },
+            goto="llm_call_with_retrieval_node",
+        )
+
+    def llm_call_with_retrieval_node(state: dict) -> Command[Literal[END]]:
+        # 这里应该要给出用户
+        messages = state.get("messages", [])
+
+        # 这里有问题，retrieval tool的触发并不稳定
+        prompt = f"""
+        现有对话： ${messages}
+        根据用户的刚才的提问检索到的知识：${state.get("retrieval_result")}
+        如果检索到的知识和用户刚才的提问匹配度较好，请根据检索到的知识回答用户刚才的问题，否则直接回答用户的问题：
+        """
+
+        # 在agent.invoke里面已经配置了config，userid threadid..
+        # 在这里直接调用模型应该是不需要传递config的
+        result = model.invoke(input=prompt)
+        llm_calls = state.get("llm_calls", 0) + 1
+        return Command(
+            update={
+                "messages": [result],
+                "llm_calls": llm_calls,
+                "retrieval_result": None,
+            },
+            goto=END,
+        )
 
     # Build workflow
     agent_builder = StateGraph(state_schema=MessagesState)
 
     # Add nodes, 支持clouser
+    # 所有的node都要加上，除了start和end
     agent_builder.add_node("llm_call", llm_call)
+    agent_builder.add_node("retrieval_node", retrieval_node)
+    agent_builder.add_node("llm_call_with_retrieval_node", llm_call_with_retrieval_node)
 
     # Add edges to connect nodes
+    # 因为所有其他节点都在返回值中说明了分支的取向，也就是相当于向graph中添加了边
+    # 我们只需要添加一条从 start -> llm_call的边即可
     agent_builder.add_edge(START, "llm_call")
-    agent_builder.add_edge("llm_call", END)
+    # agent_builder.add_edge("llm_call", END)
 
     # Compile the agent
     # checkpointer = InMemorySaver()
@@ -203,3 +324,8 @@ async def init_new_agent_thread(
         config=config,
         values={"messages": base_messages, "llm_calls": 0},
     )
+
+
+## 根据我们最新的理解，每一个agent node都可以看成是一个函数
+# 这样也非常方便被测试，最好的方式就不要写在agent这个模块里面
+# 写在外部，agent这边写一个wrapper，这样agent node函数甚至可以直接和graph state 解耦 nice！

@@ -213,5 +213,5 @@ __marimo__/
 keycloak/
 
 .DS_Store
-*.db
+*.db*
 *tmp*
