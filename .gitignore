@@ -208,7 +208,7 @@ __marimo__/
 
 # Streamlit
 # https://docs.streamlit.io/develop/concepts/connections/secrets-management
-.streamlit/
+# .streamlit/
 # OIDC
 # keycloak/
 
