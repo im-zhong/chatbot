@@ -210,7 +210,7 @@ __marimo__/
 # https://docs.streamlit.io/develop/concepts/connections/secrets-management
 .streamlit/
 # OIDC
-keycloak/
+# keycloak/
 
 .DS_Store
 *.db*

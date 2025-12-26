@@ -1,0 +1,42 @@
+{
+    "realm": "streamlit",
+    "enabled": true,
+    "users": [
+        {
+            "username": "alice",
+            "enabled": true,
+            "email": "alice@example.com",
+            "emailVerified": true,
+            "firstName": "Alice",
+            "lastName": "Tester",
+            "credentials": [
+                {
+                    "type": "password",
+                    "value": "alice1234",
+                    "temporary": false
+                }
+            ]
+        }
+    ],
+    "clients": [
+        {
+            "clientId": "streamlit",
+            "enabled": true,
+            "protocol": "openid-connect",
+            "publicClient": false,
+            "clientAuthenticatorType": "client-secret",
+            "secret": "streamlit-secret",
+            "standardFlowEnabled": true,
+            "redirectUris": [
+                "http://localhost:8501/oauth2callback",
+                "http://localhost:8501/"
+            ],
+            "webOrigins": [
+                "http://localhost:8501"
+            ],
+            "attributes": {
+                "post.logout.redirect.uris": "+"
+            }
+        }
+    ]
+}

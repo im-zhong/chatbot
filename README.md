@@ -23,7 +23,9 @@ A simple chatbot
 
 ### TODO
 
-1. use milvus with BGE
+1. [ ] use milvus with BGE
+2. [ ] impl structured output
+3. [ ] implement user interupt? 需要吗？还是直接通过对话来获取用户的输入？
 
 ✔ Best all-around BGE model for RAG: BAAI/bge-m3
 ✔ Why it’s best: Unified dense + sparse + multi-vector retrieval + strong multilingual performance.  ￼
