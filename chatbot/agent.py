@@ -32,6 +32,7 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 from langchain.messages import HumanMessage, AIMessage, SystemMessage
 from chatbot.tools import build_retrieval_tool
 from chatbot.vector_store import VectorStore
+from langgraph.types import interrupt
 
 
 # 在 LangGraph 里：
@@ -120,7 +121,21 @@ def get_agent(
 
     async def retrieval_node(
         state: dict,
-    ) -> Command[Literal["llm_call_with_retrieval_node"]]:
+    ) -> Command[Literal["llm_call_with_retrieval_node", END]]:
+        # tips:
+        # 永远只能在节点的最开始使用interrupt
+        approved = interrupt("Do you approve this action?")
+
+        if not approved:
+            return Command(
+                update={
+                    # "retrieval_result": retrieved_content,
+                    # "retrieval_calls": retrieval_calls,
+                    "tool_calls": None,
+                },
+                goto=END,
+            )
+
         assert state.get("tool_calls") is not None
         tool_calls: list[ToolCall] = state.get("tool_calls", [])
         assert len(tool_calls) == 1
@@ -218,8 +233,13 @@ def get_agent(
     return agent
 
 
-def get_config(thread_id: str = "1", user_id: str = "2") -> RunnableConfig:
-    return {"configurable": {"thread_id": thread_id, "user_id": user_id}}
+def get_config(
+    thread_id: str = "1", user_id: str = "2", resume: bool = False
+) -> RunnableConfig:
+    config = {"configurable": {"thread_id": thread_id, "user_id": user_id}}
+    if resume:
+        config["resume"] = True
+    return config
 
 
 def to_openai_messages(raw_messages):

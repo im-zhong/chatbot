@@ -42,12 +42,14 @@ from contextlib import asynccontextmanager
 import uuid
 from chatbot.vector_store import VectorStore
 from chatbot.tools import build_retrieval_tool
+from langgraph.types import Command
 
 
 class AgentMessage(BaseModel):
     user_id: str
     thread_id: str
     message: str
+    resume: bool = False
 
 
 async def agent_chat(agent, message: AgentMessage):
@@ -56,7 +58,9 @@ async def agent_chat(agent, message: AgentMessage):
 
     # async with AsyncPostgresSaver.from_conn_string(DB_URI) as checkpointer:
     # with PostgresSaver.from_conn_string(DB_URI) as checkpointer:
-    config = get_config(user_id=message.user_id, thread_id=message.thread_id)
+    config = get_config(
+        user_id=message.user_id, thread_id=message.thread_id, resume=message.resume
+    )
     # checkpoint = agent.get_state(config=config)
     # 其实需要做的事情就是把memory里面的消息放到agent的state里面吧
     # state = MessagesState(**checkpoint.values)
@@ -80,12 +84,57 @@ async def agent_chat(agent, message: AgentMessage):
     #     ):
     #         yield f"data: {json.dumps({'token': chunk[0].content})}\n\n"
     # 我擦！真的！！！牛逼呀，这样就更简单了，相比于没有checkpoint的写法，实际上就只多了一个config参数而已
-    async for chunk in agent.astream(
-        input={"messages": [HumanMessage(content=message.message)]},
-        stream_mode="messages",
+
+    # TIPS:
+    # interrupt 向 graph state 注入一个 __interrupt__ 事件，然后立即停止当前 graph 执行
+    # 作为一个特殊的 stream chunk 被 yield 出来
+    # [token chunk]
+    # [token chunk]
+    # [token chunk]
+    # [INTERRUPT EVENT]  ← 你必须接住
+    # (stream ends)
+    # https://docs.langchain.com/oss/python/langgraph/streaming#stream-multiple-modes
+    # 所以必须要stream multiple modes
+    # old impl
+    # async for chunk in agent.astream(
+    #     input={"messages": [HumanMessage(content=message.message)]},
+    #     stream_mode=["messages", "events"],
+    #     config=config,
+    # ):
+    #     yield f"data: {json.dumps({'token': chunk[0].content})}\n\n"
+
+    # https://stackoverflow.com/questions/79582204/how-to-resume-a-langgraph-stream-after-a-custom-human-assistance-tool-interrupt
+    input = {"messages": [HumanMessage(content=message.message)]}
+    if message.resume:
+        input = Command(resume=True)
+
+    # new impl
+    async for mode, payload in agent.astream(
+        input=input,
+        stream_mode=["messages", "updates"],
         config=config,
     ):
-        yield f"data: {json.dumps({'token': chunk[0].content})}\n\n"
+        if mode == "messages":
+            msg = payload[0]
+            if msg.content:
+                yield f"data: {json.dumps({'type': 'token', 'token': msg.content})}\n\n"
+
+        elif mode == "updates":
+            # interrupt 就在这里
+            if "__interrupt__" in payload:
+                interrupt_event = payload["__interrupt__"][0]
+
+                yield f"""data: {
+                    json.dumps(
+                        {
+                            "type": "interrupt",
+                            "id": interrupt_event.id,
+                            "question": interrupt_event.value,
+                        }
+                    )
+                }\n\n"""
+
+                return
 
 
 class UserMessage(BaseModel):
@@ -220,6 +269,10 @@ def chat(input: UserMessage):
 @app.post("/agent-chat")
 def do_agent_chat(input: AgentMessage):
     # print("get user prompt", input.model_dump())
+
+    # 现在的问题是interrupt怎么和streaming chat结合呢?
+    # 因为需要和用户反馈，所以agent必须在适当的位置返回
+
     return StreamingResponse(
         agent_chat(app.state.agent, input),
         media_type="text/event-stream",
